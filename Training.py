@@ -7,8 +7,10 @@ import pandas as pd
 from pathlib import Path # useful to avoid path issues depending on the machine
 import hydra
 from hydra.utils import get_original_cwd
-from omegaconf import DictConfig
+from omegaconf import DictConfig, OmegaConf
 
+import logging
+logger = logging.getLogger(__name__)
 
 datapath = Path('data/ESC-50')
 
@@ -104,6 +106,9 @@ class AudioNet(pl.LightningModule):
 
 @hydra.main(config_path = 'configs', config_name = 'default')
 def train(cfg: DictConfig):
+
+    logger.info(OmegaConf.to_yaml(cfg))
+
     path = Path(get_original_cwd()) / Path(cfg.data.path)
     train_data = ESC50Dataset(path = path, folds = cfg.data.train_folds)
     val_data = ESC50Dataset(path = path, folds = cfg.data.val_folds)
