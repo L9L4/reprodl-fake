@@ -5,6 +5,9 @@ import pytorch_lightning as pl
 import matplotlib.pyplot as plt
 import pandas as pd
 from pathlib import Path # useful to avoid path issues depending on the machine
+import hydra
+from hydra.utils import get_original_cwd
+from omegaconf import DictConfig
 
 
 datapath = Path('data/ESC-50')
@@ -45,29 +48,23 @@ class ESC50Dataset(torch.utils.data.Dataset):
         #Returns length
         return (len(self.csv))
 
-train_data = ESC50Dataset(folds = [1])
-val_data = ESC50Dataset(folds = [2])
-test_data = ESC50Dataset(folds = [3])
-
-train_loader = torch.utils.data.DataLoader(train_data, batch_size = 8, shuffle = True, )
-val_loader = torch.utils.data.DataLoader(val_data, batch_size = 8, shuffle = True, )
-test_loader = torch.utils.data.DataLoader(test_data, batch_size = 8, shuffle = True, )
 
 class AudioNet(pl.LightningModule):
  
-    def __init__(self, n_classes = 50, base_filters = 32):
+    def __init__(self, hparams):
         super().__init__()
-        self.conv1 = nn.Conv2d(1, base_filters, 11, padding=5)
-        self.bn1 = nn.BatchNorm2d(base_filters)
-        self.conv2 = nn.Conv2d(base_filters, base_filters, 3, padding=1)
-        self.bn2 = nn.BatchNorm2d(base_filters)
+        self.hparams = hparams
+        self.conv1 = nn.Conv2d(1, hparams.base_filters, 11, padding=5)
+        self.bn1 = nn.BatchNorm2d(hparams.base_filters)
+        self.conv2 = nn.Conv2d(hparams.base_filters, hparams.base_filters, 3, padding=1)
+        self.bn2 = nn.BatchNorm2d(hparams.base_filters)
         self.pool1 = nn.MaxPool2d(2)
-        self.conv3 = nn.Conv2d(base_filters, base_filters * 2, 3, padding=1)
-        self.bn3 = nn.BatchNorm2d(base_filters * 2)
-        self.conv4 = nn.Conv2d(base_filters * 2, base_filters * 4, 3, padding=1)
-        self.bn4 = nn.BatchNorm2d(base_filters * 4)
+        self.conv3 = nn.Conv2d(hparams.base_filters, hparams.base_filters * 2, 3, padding=1)
+        self.bn3 = nn.BatchNorm2d(hparams.base_filters * 2)
+        self.conv4 = nn.Conv2d(hparams.base_filters * 2, hparams.base_filters * 4, 3, padding=1)
+        self.bn4 = nn.BatchNorm2d(hparams.base_filters * 4)
         self.pool2 = nn.MaxPool2d(2)
-        self.fc1 = nn.Linear(base_filters * 4, n_classes)
+        self.fc1 = nn.Linear(hparams.base_filters * 4, hparams.num_classes)
  
     def forward(self, x):
         x = self.conv1(x)
@@ -102,13 +99,28 @@ class AudioNet(pl.LightningModule):
         return 
 
     def configure_optimizers(self):
-        optimizer = torch.optim.Adam(self.parameters(), lr=1e-3)
+        optimizer = torch.optim.Adam(self.parameters(), lr=self.hparams.optim.lr)
         return optimizer    
 
-pl.seed_everything(0)
+@hydra.main(config_path = 'configs', config_name = 'default')
+def train(cfg: DictConfig):
+    path = Path(get_original_cwd()) / Path(cfg.data.path)
+    train_data = ESC50Dataset(path = path, folds = cfg.data.train_folds)
+    val_data = ESC50Dataset(path = path, folds = cfg.data.val_folds)
+    test_data = ESC50Dataset(path = path, folds = cfg.data.test_folds)
 
-audionet = AudioNet()
+    train_loader = torch.utils.data.DataLoader(train_data, batch_size = cfg.data.batch_size, shuffle = True, )
+    val_loader = torch.utils.data.DataLoader(val_data, batch_size = cfg.data.batch_size, shuffle = True, )
+    test_loader = torch.utils.data.DataLoader(test_data, batch_size = cfg.data.batch_size, shuffle = True, )
 
-trainer = pl.Trainer(gpus = 1, max_epochs = 10)
-trainer.fit(audionet, train_loader, val_loader)
-trainer.test(audionet, test_loader)
+
+    pl.seed_everything(cfg.seed)
+
+    audionet = AudioNet(cfg.model)
+
+    trainer = pl.Trainer(**cfg.trainer)
+    trainer.fit(audionet, train_loader, val_loader)
+    trainer.test(audionet, test_loader)
+
+if __name__ == '__main__':
+    train()
